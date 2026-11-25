@@ -1,0 +1,46 @@
+<?php
+
+namespace App\Providers;
+
+use App\Experimento\Experimento;
+use App\Recommendation\Llm\OllamaProvedor;
+use App\Recommendation\Llm\OpenAiCompativelProvedor;
+use App\Recommendation\Llm\ProvedorLlm;
+use App\Recommendation\MetaClassifier;
+use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\ServiceProvider;
+
+class AppServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        $this->app->bind(ProvedorLlm::class, fn () => match (config('llm.provedor')) {
+            'ollama' => new OllamaProvedor(config('llm.ollama.url'), config('llm.ollama.modelo'), (string) config('llm.ollama.keep_alive', '10m')),
+            'groq' => new OpenAiCompativelProvedor(config('llm.groq.url'), config('llm.groq.chave'), config('llm.groq.modelo'), (array) config('llm.groq.extras', []), (int) config('llm.groq.espera_max_segundos', 60)),
+        });
+
+        $this->app->bind(MetaClassifier::class, function ($app) {
+            $provedor = config('llm.provedor');
+
+            if (! in_array($provedor, ['ollama', 'groq'], true)) {
+                if ($provedor !== 'nenhum') {
+                    Log::warning("LLM_PROVEDOR desconhecido ({$provedor}); a classificação de meta fica desativada.");
+                }
+
+                return new MetaClassifier(null, config('llm', []));
+            }
+
+            $config = array_merge(config('llm', []), ['itens_por_chamada' => (int) config("llm.{$provedor}.itens_por_chamada", 1)]);
+
+            return new MetaClassifier($app->make(ProvedorLlm::class), $config);
+        });
+
+        $this->app->scoped(Experimento::class);
+    }
+
+    public function boot(): void
+    {
+        Blade::if('explicabilidade', fn (string $flag) => Experimento::ativa($flag));
+    }
+}

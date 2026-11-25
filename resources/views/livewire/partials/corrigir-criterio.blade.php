@@ -1,0 +1,41 @@
+@php
+    use App\Recommendation\ExplanationRenderer;
+    use App\Recommendation\RuleClassifier;
+
+    $opcoes = $criterio === 'nivel'
+        ? array_intersect_key(ExplanationRenderer::NIVEIS_LEGIVEIS, array_flip(RuleClassifier::NIVEIS_VALIDOS))
+        : RuleClassifier::METAS;
+    $acao = $criterio === 'nivel' ? 'corrigirNivel' : 'corrigirMeta';
+    $pergunta = $criterio === 'nivel' ? 'Qual é a etapa deste REA?' : 'Qual é a meta deste REA?';
+@endphp
+<span class="flex flex-wrap items-center gap-2 max-w-full text-sm">
+    <span wire:ignore wire:key="{{ $prefixo }}-{{ $criterio }}-{{ $corrigido ? 'corrigido' : 'estimado' }}" x-data="{ editando: false, valor: '' }" class="flex flex-wrap items-center gap-2 max-w-full">
+        <button
+            type="button"
+            x-show="!editando"
+            class="min-h-11 px-3.5 rounded-lg border border-indigo-300 bg-white font-semibold text-indigo-800 hover:bg-indigo-50"
+            @click="editando = true; $wire.registrarExplicacao('abriu_correcao', @js($repositorio), @js($titulo), @js($faixa))"
+        >{{ $corrigido ? 'Corrigir de novo' : 'Corrigir' }}</button>
+        <span x-show="editando" style="display: none" class="flex flex-wrap items-center gap-2 max-w-full">
+            <select x-model="valor" aria-label="{{ $pergunta }}" class="w-full sm:w-auto max-w-full min-h-11 border border-slate-300 rounded-lg px-2.5 text-base sm:text-[15px] bg-white">
+                <option value="">{{ $criterio === 'nivel' ? 'Qual é a etapa?' : 'Qual é a meta?' }}</option>
+                @foreach ($opcoes as $codigo => $nome)
+                    <option value="{{ $codigo }}">{{ $nome }}</option>
+                @endforeach
+            </select>
+            <button
+                type="button"
+                class="min-h-11 px-4 rounded-lg bg-indigo-700 text-white font-semibold disabled:opacity-50"
+                :disabled="!valor"
+                @click="$wire.{{ $acao }}(@js($chave), valor); editando = false; valor = ''"
+            >Salvar correção</button>
+            <button type="button" class="min-h-11 px-3.5 rounded-lg border border-slate-300 bg-white font-semibold text-slate-800 hover:bg-slate-50" @click="editando = false; valor = ''">Cancelar</button>
+            <span class="basis-full text-slate-600">A lista se reorganiza com a sua informação: este REA pode subir ou descer. Você pode desfazer depois.</span>
+        </span>
+    </span>
+    @if ($corrigido)
+        <button type="button" class="min-h-11 px-3.5 rounded-lg border border-slate-300 bg-white font-semibold text-slate-800 hover:bg-slate-50" wire:click="desfazerCorrecao(@js($chave), '{{ $criterio }}')">
+            Desfazer
+        </button>
+    @endif
+</span>

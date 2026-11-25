@@ -1,0 +1,345 @@
+@php
+    use App\Recommendation\ExplanationRenderer;
+    use App\Recommendation\RuleClassifier;
+
+    $totalExibidos = array_sum(array_map(fn ($r) => $resumo['faixas'][$r] ?? 0, $resumo['ordem']));
+    $situacoes = [
+        'ok' => ['cor' => 'bg-green-500', 'texto' => 'text-slate-700'],
+        'parcial' => ['cor' => 'bg-amber-500', 'texto' => 'text-amber-800'],
+        'falhou' => ['cor' => 'bg-red-500', 'texto' => 'text-red-700'],
+    ];
+@endphp
+<div class="grid grid-cols-1 gap-4 md:grid-cols-2 items-start text-[15px] text-slate-700 break-words">
+    @explicabilidade('painel-ordenacao')
+    <details wire:ignore.self class="group bg-white border border-indigo-200 rounded-2xl overflow-hidden" x-on:toggle="if ($el.open) $wire.registrarExplicacao('abriu_ordenacao')">
+        <summary class="flex items-center gap-3 p-4 min-h-[60px] cursor-pointer list-none [&::-webkit-details-marker]:hidden hover:bg-indigo-50/60">
+            <span class="flex items-center justify-center w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 shrink-0" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h10M4 18h6" />
+                </svg>
+            </span>
+            <span class="flex-1 min-w-0">
+                <span class="block font-bold text-indigo-950">Como ordenamos estes resultados</span>
+                <span class="block text-sm text-slate-600">
+                    {{ $totalExibidos }} {{ $totalExibidos === 1 ? 'REA exibido' : 'REAs exibidos' }}@if ($resumo['ocultos'] > 0) · {{ $resumo['ocultos'] }} {{ $resumo['ocultos'] === 1 ? 'oculto' : 'ocultos' }}@endif
+                </span>
+            </span>
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-slate-500 shrink-0 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6" />
+            </svg>
+        </summary>
+
+        <div class="px-4 pb-4 space-y-5 border-t border-slate-100 pt-4">
+            <section class="space-y-3">
+                <p>
+                    Cada REA recebe um <strong>grau de recomendação</strong>: a soma dos pontos dos critérios que foram
+                    conferidos e atendidos ({{ $resumo['com_meta'] ? 'meta +4, nível +2, tipo +1, de 0 a 7' : 'nível +2, tipo +1, de 0 a 3' }}).
+                    Critério que não pôde ser conferido vale 0, e a regra é a mesma para todos os repositórios.
+                    Só entram na lista os REAs cujo título ou descrição fala do tema da busca; os outros ficam em
+                    “REAs que não aparecem”, com o motivo.
+                    @if ($resumo['com_meta'])
+                        A lista é organizada primeiro pela meta (compatível, não conferida, diferente da sua) e, dentro de
+                        cada grupo, do maior grau para o menor, nestas faixas:
+                    @else
+                        A lista vai do maior grau para o menor, nestas faixas:
+                    @endif
+                </p>
+                <ol class="space-y-2">
+                    @foreach ($resumo['ordem'] as $rotulo)
+                        @php
+                            $faixa = ExplanationRenderer::faixa($rotulo, null, $resumo['com_meta']);
+                            $quantidade = $resumo['faixas'][$rotulo];
+                        @endphp
+                        <li class="grid grid-cols-[auto_minmax(0,1fr)] sm:flex items-start gap-x-3 gap-y-1.5 p-3 rounded-lg bg-slate-50">
+                            <span class="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-sm font-semibold shrink-0">{{ $loop->iteration }}</span>
+                            <span class="flex-1 min-w-0">
+                                <span class="block font-medium text-slate-900">{{ $faixa['titulo'] }} <span class="font-normal text-slate-600">· grau {{ $faixa['graus'] }}</span></span>
+                                <span class="block text-sm text-slate-600">{{ $faixa['descricao'] }}</span>
+                            </span>
+                            <span @class([
+                                'col-start-2 justify-self-start px-2 py-0.5 rounded-full text-sm font-medium shrink-0',
+                                'bg-indigo-100 text-indigo-700' => $quantidade > 0,
+                                'bg-slate-200 text-slate-600' => $quantidade === 0,
+                            ])>{{ $quantidade }} {{ $quantidade === 1 ? 'REA' : 'REAs' }}</span>
+                        </li>
+                    @endforeach
+                </ol>
+                @if ($resumo['com_meta'])
+                    @php
+                        $incompativeis = $resumo['meta_incompativel'] + $resumo['meta_corrigida_incompativel'];
+                    @endphp
+                    <div class="text-sm text-slate-600 space-y-1">
+                        <p>
+                            Depois dos compatíveis com a sua meta vêm os REAs cuja meta não pôde ser conferida e, em seguida,
+                            os de meta diferente da sua. Se um grupo estiver vazio, o seguinte sobe: sem compatíveis, a lista
+                            começa por um desses grupos. A meta não tira nenhum REA da lista, porque a classificação por IA pode errar.
+                        </p>
+                        @if ($resumo['meta_nao_conferida'] > 0)
+                            <p>{{ $resumo['meta_nao_conferida'] }} {{ $resumo['meta_nao_conferida'] === 1 ? 'REA está' : 'REAs estão' }} com a meta não conferida.</p>
+                        @endif
+                        @if ($incompativeis > 0)
+                            <p>
+                                {{ $incompativeis }} {{ $incompativeis === 1 ? 'REA está' : 'REAs estão' }} com a meta diferente da sua{{ $resumo['meta_corrigida_incompativel'] > 0 ? ' ('.$resumo['meta_corrigida_incompativel'].' por correção sua)' : '' }}.
+                            </p>
+                        @endif
+                    </div>
+                @endif
+            </section>
+
+            @if ($resumo['corrigidos'] > 0 && $podeCorrigir)
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800">
+                    <span>
+                        {{ ExplanationRenderer::MARCA_CORRECAO }}
+                        @if ($resumo['mudaram_faixa'] === 0)
+                            Suas correções não mudaram a faixa de nenhum REA.
+                        @else
+                            {{ $resumo['mudaram_faixa'] }} {{ $resumo['mudaram_faixa'] === 1 ? 'REA mudou' : 'REAs mudaram' }} de faixa por correções suas.
+                        @endif
+                    </span>
+                    <span x-data="{ confirmando: false }" class="flex flex-wrap items-center gap-2">
+                        <button type="button" x-show="!confirmando" class="min-h-11 font-medium text-indigo-700 hover:underline" @click="confirmando = true">Desfazer todas</button>
+                        <span x-show="confirmando" style="display: none" class="flex flex-wrap items-center gap-2" role="group" aria-label="Confirmar desfazer todas">
+                            <span>Desfazer todas as suas correções nesta busca?</span>
+                            <button type="button" class="min-h-11 px-3.5 rounded-lg bg-amber-700 text-white font-semibold hover:bg-amber-800" wire:click="desfazerTodas" @click="confirmando = false">Sim, desfazer</button>
+                            <button type="button" class="min-h-11 px-3.5 rounded-lg border border-amber-300 bg-white font-semibold text-amber-900 hover:bg-amber-100" @click="confirmando = false">Cancelar</button>
+                        </span>
+                    </span>
+                </div>
+            @endif
+
+            @if ($resumo['ocultos'] > 0)
+                @php
+                    $textosMotivos = [
+                        'tema' => 'o tema da busca não aparece no título nem na descrição',
+                        'sem_meta_usuario' => 'que dependem de uma meta de aprendizagem',
+                        'outros' => 'sem faixa definida',
+                    ];
+                    $textosResumo = array_replace($textosMotivos, ['tema' => 'sem o tema da busca no título nem na descrição']);
+                @endphp
+                <section class="rounded-lg border border-slate-200 overflow-hidden">
+                    <div class="p-3 bg-slate-50">
+                        <p class="flex items-center gap-2 font-medium text-slate-900">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-slate-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M10.6 10.6a2 2 0 002.8 2.8M9.9 5.1A9.8 9.8 0 0112 5c5 0 9 5 9 7a11 11 0 01-2.2 3.2M6.6 6.6C4.4 8 3 10.4 3 12c0 2 4 7 9 7a9.6 9.6 0 004.4-1.1" />
+                            </svg>
+                            {{ $resumo['ocultos'] }} {{ $resumo['ocultos'] === 1 ? 'REA encontrado não é exibido' : 'REAs encontrados não são exibidos' }}:
+                        </p>
+                        <ul class="mt-1 ml-6 space-y-0.5 text-slate-600">
+                            @foreach ($resumo['motivos_ocultos'] as $motivo => $quantidade)
+                                @if ($quantidade > 0)
+                                    <li>{{ $quantidade }} {{ $textosResumo[$motivo] }}</li>
+                                @endif
+                            @endforeach
+                        </ul>
+                    </div>
+                    @if (!empty($ocultos) && \App\Experimento\Experimento::ativa('reas-ocultos'))
+                        <details wire:ignore.self class="group/ocultos border-t border-slate-200" x-on:toggle="if ($el.open) $wire.registrarExplicacao('abriu_ocultos')">
+                            <summary class="flex items-center justify-between gap-2 min-h-11 px-3 py-2 cursor-pointer list-none [&::-webkit-details-marker]:hidden text-indigo-700 font-medium hover:bg-indigo-50">
+                                <span>Ver os REAs que não aparecem</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0 transition-transform group-open/ocultos:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6" />
+                                </svg>
+                            </summary>
+                            <ul class="p-3 space-y-2 sm:max-h-[28rem] sm:overflow-y-auto bg-white">
+                                @php $ocorrenciasOcultos = []; @endphp
+                                @foreach ($ocultos as $o)
+                                    <li class="p-3 rounded-lg border border-slate-200">
+                                        <div class="flex flex-wrap items-center gap-2 mb-1 text-sm">
+                                            <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">{{ $o['repositorio'] }}</span>
+                                            <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{{ $textosMotivos[$o['motivo']] ?? $o['motivo'] }}</span>
+                                        </div>
+                                        <p class="font-medium text-slate-900 break-words">{{ $o['titulo'] }}</p>
+                                        <p class="mt-1 text-sm text-slate-600">{{ $o['resumo'] }}</p>
+                                        @if ($o['chave'] && $podeCorrigir && in_array('meta', $o['corrigiveis'], true))
+                                            <div class="mt-2 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2">
+                                                <span class="text-sm text-slate-600">A meta deste REA está errada?</span>
+                                                @include('livewire.partials.corrigir-criterio', [
+                                                    'criterio' => 'meta',
+                                                    'chave' => $o['chave'],
+                                                    'prefixo' => 'oculto-'.$o['chave'].'-'.($ocorrenciasOcultos[$o['chave']] = ($ocorrenciasOcultos[$o['chave']] ?? 0) + 1),
+                                                    'corrigido' => in_array('meta', $o['corrigidos'], true),
+                                                    'repositorio' => $o['repositorio'],
+                                                    'titulo' => $o['titulo'],
+                                                    'faixa' => null,
+                                                ])
+                                            </div>
+                                        @endif
+                                    </li>
+                                @endforeach
+                            </ul>
+                            @if ($resumo['ocultos'] > count($ocultos))
+                                <p class="px-3 pb-3 text-sm text-slate-600">Mostrando {{ count($ocultos) }} de {{ $resumo['ocultos'] }}.</p>
+                            @endif
+                        </details>
+                    @endif
+                </section>
+            @endif
+
+            <section>
+                <p class="text-xs font-bold uppercase tracking-wider text-indigo-700 mb-2">Repositórios consultados</p>
+                <ul class="space-y-1.5">
+                    @foreach ($repositorios as $nome => $r)
+                        @php $s = $situacoes[$r['situacao']] ?? ['cor' => 'bg-gray-300 animate-pulse', 'texto' => 'text-slate-600']; @endphp
+                        <li class="flex items-start gap-2">
+                            <span class="w-2 h-2 mt-2 rounded-full shrink-0 {{ $s['cor'] }}" aria-hidden="true"></span>
+                            <span class="min-w-0">
+                            <span class="font-medium text-slate-900">{{ $nome }}</span>
+                            <span class="{{ $s['texto'] }}">
+                                @switch($r['situacao'])
+                                    @case('ok') {{ $r['itens'] }} {{ $r['itens'] === 1 ? 'item retornado' : 'itens retornados' }} @break
+                                    @case('parcial') {{ $r['itens'] }} itens; algumas páginas não responderam @break
+                                    @case('falhou') não respondeu (tempo esgotado ou erro); nenhum item deste repositório @break
+                                    @default ainda consultando…
+                                @endswitch
+                            </span>
+                            </span>
+                        </li>
+                    @endforeach
+                </ul>
+            </section>
+
+            <p class="text-sm text-slate-600 pt-3 border-t border-slate-100">
+                Entre REAs de mesmo grau, vem primeiro o que está mais acima no próprio repositório (o 1º resultado de cada
+                repositório, depois o 2º, e assim por diante), o que intercala os repositórios. Persistindo o empate, vale a ordem
+                alfabética do repositório. Nenhum repositório tem posição reservada, e a ordem não depende de qual respondeu primeiro.
+            </p>
+            <p class="text-sm text-slate-600">
+                A meta de cada recurso é estimada por um modelo de IA, que recebe só o título, a descrição e o tipo do recurso. Nenhum dado seu é enviado.
+            </p>
+        </div>
+    </details>
+    @endexplicabilidade
+
+    @explicabilidade('painel-contexto')
+    <details wire:ignore.self class="group bg-white border border-indigo-200 rounded-2xl overflow-hidden" x-on:toggle="if ($el.open) $wire.registrarExplicacao('abriu_contexto')">
+        <summary class="flex items-center gap-3 p-4 min-h-[60px] cursor-pointer list-none [&::-webkit-details-marker]:hidden hover:bg-indigo-50/60">
+            <span class="flex items-center justify-center w-9 h-9 rounded-full bg-indigo-50 text-indigo-700 shrink-0" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="8" r="4" />
+                    <path stroke-linecap="round" d="M4 20c0-4 4-6 8-6s8 2 8 6" />
+                </svg>
+            </span>
+            <span class="flex-1 min-w-0">
+                <span class="block font-bold text-indigo-950">O que usamos sobre você</span>
+                <span class="block text-sm text-slate-600 sm:truncate">
+                    @if ($contexto)
+                        {{ $contexto['perfil'] }} · {{ $contexto['interesse'] }}@if ($contexto['meta']) · meta {{ mb_strtolower(RuleClassifier::METAS[$contexto['meta']['dominante']] ?? $contexto['meta']['dominante']) }}@endif
+                    @else
+                        Perfil, interesse, tipos e meta
+                    @endif
+                </span>
+            </span>
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-slate-500 shrink-0 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6" />
+            </svg>
+        </summary>
+
+        <div class="px-4 pb-4 border-t border-slate-100 pt-4">
+            @if ($contexto)
+                <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="p-3 rounded-lg bg-slate-50">
+                        <dt class="text-xs font-bold uppercase tracking-wider text-indigo-700">Perfil (nível educacional)</dt>
+                        <dd class="mt-0.5 font-medium text-slate-900">{{ $contexto['perfil'] }}</dd>
+                    </div>
+                    <div class="p-3 rounded-lg bg-slate-50">
+                        <dt class="text-xs font-bold uppercase tracking-wider text-indigo-700">Interesse</dt>
+                        <dd class="mt-0.5 font-medium text-slate-900">
+                            {{ $contexto['interesse'] }}
+                            @if (RuleClassifier::normalizar($contexto['interesse']) !== RuleClassifier::normalizar($contexto['termo_api']))
+                                <span class="block text-sm font-normal text-slate-600">→ buscado nos repositórios como “{{ $contexto['termo_api'] }}”</span>
+                            @endif
+                        </dd>
+                    </div>
+
+                    <div class="sm:col-span-2 p-3 rounded-lg bg-slate-50">
+                        <dt class="text-xs font-bold uppercase tracking-wider text-indigo-700">Tipos preferidos</dt>
+                        <dd class="mt-0.5 text-slate-800">
+                            @php $daConta = $tipos['fonte'] === 'usuario'; @endphp
+                            @if ($tipos['editados'])
+                                <span class="text-amber-700">{{ ExplanationRenderer::MARCA_CORRECAO }} Definidos por você nesta busca:</span>
+                                {{ $tipos['atuais'] ? implode(', ', ExplanationRenderer::tipos($tipos['atuais'])) : 'nenhum' }}.
+                                <span class="block text-sm text-slate-600">{{ $daConta ? 'A busca começou com os tipos da sua conta' : 'O sistema tinha usado' }}: {{ $tipos['originais'] ? implode(', ', ExplanationRenderer::tipos($tipos['originais'])) : 'nenhum' }}.</span>
+                            @elseif ($daConta)
+                                <span class="font-medium text-slate-900">Da sua conta:</span>
+                                {{ implode(', ', ExplanationRenderer::tipos($contexto['tipos_conta'] ?? [])) ?: implode(', ', ExplanationRenderer::tipos($tipos['originais'])) }}.
+                                @if ($tipos['inclui_colaboradores'])
+                                    <span class="block text-sm text-slate-600">Unidos aos tipos dos colaboradores, como você pediu: {{ implode(', ', ExplanationRenderer::tipos($tipos['originais'])) }}.</span>
+                                @else
+                                    <span class="block text-sm text-slate-600">Substituem os tipos cadastrados pelos colaboradores.</span>
+                                @endif
+                            @else
+                                @if ($contexto['tipos_busca'] ?? [])
+                                    De colaboradores com o mesmo interesse e perfil: {{ implode(', ', ExplanationRenderer::tipos($contexto['tipos_busca'])) }}.
+                                @else
+                                    Nenhum colaborador cadastrou REAs com o mesmo interesse e perfil.
+                                @endif
+                                @if ($contexto['tipos_gerais'] ?? [])
+                                    <span class="block">De outros colaboradores: {{ implode(', ', ExplanationRenderer::tipos($contexto['tipos_gerais'])) }}.</span>
+                                @endif
+                            @endif
+                            @auth
+                                <a href="{{ comParams(route('preferencias')) }}" class="inline-flex items-center min-h-11 text-sm text-indigo-700 hover:underline">
+                                    {{ $daConta ? 'Preferência da conta (próximas buscas)' : 'Salvar como preferência da conta (próximas buscas)' }}
+                                </a>
+                            @endauth
+
+                            @if (! $tipos['opcoes'] || ! \App\Experimento\Experimento::ativa('escrutabilidade'))
+                            @elseif (! $podeCorrigir)
+                                <p class="text-sm text-slate-600 mt-1">Você poderá editar os tipos preferidos quando todos os repositórios responderem.</p>
+                            @else
+                                <div class="mt-2 flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        class="min-h-11 px-3.5 rounded-lg border border-indigo-200 bg-white text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+                                        @click="$store.tipos.abrir(); $wire.registrarExplicacao('abriu_correcao')"
+                                    >Mudar nesta busca</button>
+                                    @if ($tipos['editados'])
+                                        <button
+                                            type="button"
+                                            class="min-h-11 px-3.5 rounded-lg text-sm text-indigo-700 hover:underline"
+                                            @click="$wire.redefinirTipos(@js($tipos['originais']))"
+                                        >{{ $daConta ? 'Voltar aos tipos da sua conta' : 'Voltar aos tipos do sistema' }}</button>
+                                    @endif
+                                </div>
+                            @endif
+                        </dd>
+                    </div>
+
+                    <div class="sm:col-span-2 p-3 rounded-lg bg-slate-50">
+                        <dt class="text-xs font-bold uppercase tracking-wider text-indigo-700">Meta de aprendizagem (EMAPRE)</dt>
+                        <dd class="mt-0.5 text-slate-800">
+                            @if ($contexto['meta'])
+                                <p>
+                                    Dominante:
+                                    <span class="font-medium text-slate-900">{{ RuleClassifier::METAS[$contexto['meta']['dominante']] ?? $contexto['meta']['dominante'] }}</span>
+                                </p>
+                                <p class="mt-2 text-sm text-slate-600">Médias (1 a 5)</p>
+                                <ul class="mt-1 space-y-1.5">
+                                    @foreach (['ma' => 'Aprendizagem', 'mpa' => 'Performance-aproximação', 'mpe' => 'Performance-evitação'] as $codigo => $nome)
+                                        @php $valor = (float) $contexto['meta'][$codigo]; @endphp
+                                        <li class="grid grid-cols-[minmax(0,1fr)_2.5rem] sm:grid-cols-[minmax(0,11rem)_1fr_2.5rem] items-center gap-x-2 gap-y-1 text-sm">
+                                            <span @class(['sm:truncate', 'font-semibold text-slate-900' => $codigo === $contexto['meta']['dominante']])>{{ $nome }}</span>
+                                            <span class="col-span-2 row-start-2 sm:col-span-1 sm:row-start-auto h-2 rounded-full bg-slate-200 overflow-hidden" aria-hidden="true">
+                                                <span @class([
+                                                    'block h-full rounded-full',
+                                                    'bg-emerald-500' => $codigo === $contexto['meta']['dominante'],
+                                                    'bg-gray-400' => $codigo !== $contexto['meta']['dominante'],
+                                                ]) style="width: {{ max(0, min(100, $valor / 5 * 100)) }}%"></span>
+                                            </span>
+                                            <span class="col-start-2 row-start-1 sm:col-start-auto sm:row-start-auto text-right tabular-nums">{{ number_format($valor, 1, ',', '') }}</span>
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            @else
+                                Não informada. Responda o questionário de metas (com login) para ordenar pela sua meta.
+                            @endif
+                        </dd>
+                    </div>
+                </dl>
+            @else
+                <p>Faça uma busca para ver os dados usados.</p>
+            @endif
+        </div>
+    </details>
+    @endexplicabilidade
+</div>
